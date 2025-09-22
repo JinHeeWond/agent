@@ -88,15 +88,6 @@ import re
 from difflib import SequenceMatcher
 from urllib.parse import urlparse
 
-WHITELIST_DOMAINS = {
-    # 공공/관광청/대형 OTA/공식
-    "japan-guide.com", "kyoto.travel", "japan.travel", "tokyometro.jp", "jr-odekake.net",
-    "agoda.com", "booking.com", "hotels.com", "rakuten.com", "rakuten.co.jp",
-    "jrpass.com", "japan-rail-pass.com",
-}
-BLACKLIST_DOMAINS = {
-    # 과도한 스팸/스크래핑성(원하면 비워두세요)
-}
 
 def _norm_text(s: str) -> str:
     s = (s or "").lower()
@@ -106,30 +97,10 @@ def _norm_text(s: str) -> str:
 def _similar(a: str, b: str) -> float:
     return SequenceMatcher(None, _norm_text(a), _norm_text(b)).ratio()
 
-def _is_domain_ok(url: str) -> bool:
-    try:
-        netloc = urlparse(url).netloc.lower()
-        host = ".".join(netloc.split(".")[-3:])  # 마지막 2~3 레벨 비교용
-        if any(d in netloc for d in BLACKLIST_DOMAINS):
-            return False
-        # 화이트리스트가 비어있지 않으면 우선 가점: 미포함도 허용하되 정렬에서 밀림
-        return True
-    except Exception:
-        return True
-
-def _score_result(item: dict) -> float:
-    """
-    간단 스코어링: 화이트리스트 도메인 가점 + 검색엔진 점수 보정
-    """
-    base = float(item.get("score") or 0.0)
-    url = item.get("url", "")
-    netloc = urlparse(url).netloc.lower()
-    wl_bonus = 0.2 if any(d in netloc for d in WHITELIST_DOMAINS) else 0.0
-    return base + wl_bonus
-
 def merge_and_dedup_results(*lists):
     """
     여러 검색 결과 리스트를 합치고 URL/제목 유사도로 중복 제거.
+    (도메인 화이트리스트/블랙리스트 기능 제거됨)
     """
     merged = []
     seen_urls = set()
@@ -140,8 +111,7 @@ def merge_and_dedup_results(*lists):
             url = r.get("url") or ""
             if not url or url in seen_urls:
                 continue
-            if not _is_domain_ok(url):
-                continue
+            # _is_domain_ok 호출이 제거됨
             seen_urls.add(url)
             merged.append(r)
 
@@ -157,8 +127,9 @@ def merge_and_dedup_results(*lists):
         if not is_dup:
             deduped.append(r)
 
-    # 3) 스코어 정렬(화이트리스트 가점)
-    deduped.sort(key=_score_result, reverse=True)
+    # 3) 스코어 정렬
+    # _score_result 함수 대신 lambda를 사용하여 직접 정렬
+    deduped.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
 
     # 4) 상위 N개만 반환 (너무 많으면 생성 품질 저하)
     return deduped[:8]
@@ -255,17 +226,6 @@ def _maybe_update_memory_summary(state: AgentState) -> Optional[str]:
     # 프롬프트 구성은 windowed 함수가 담당하므로 문제 없음.
     return new_summary or None
 
-
-def _get_conversation_history(state: AgentState) -> str:
-    """메시지 기록 전체를 하나의 대화 문자열로 결합합니다. (장기 기억 역할)"""
-    history = []
-    for msg in state["messages"]:
-        if isinstance(msg, HumanMessage):
-            history.append(f"User: {msg.content}")
-        elif isinstance(msg, AIMessage):
-            if not getattr(msg, 'tool_calls', []):
-                history.append(f"Assistant: {msg.content}")
-    return "\n".join(history)
 
 def _get_last_user_message(state: AgentState) -> str:
     """가장 최근 Human 메시지의 content만 반환 (토픽 섞임 방지용)"""
@@ -828,6 +788,7 @@ workflow.add_conditional_edges(
         "planner": "planner",
         "researcher": "researcher",
         "generator": "generator",
+        "router": "router", # router에서 router로 돌아오는 엣지 추가
         "end": END
     }
 )
@@ -844,11 +805,24 @@ memory = InMemorySaver()
 app = workflow.compile(checkpointer=memory)
 print("\n✅ Central Router Agent compiled successfully!")
 
+# 그래프 시각화 및 저장
+print("\n🎨 Generating and saving graph visualization...")
 try:
+    # get_graph()를 호출하여 그래프 객체를 얻고, draw_png()로 이미지를 생성합니다.
+    # 이 이미지에는 노드와 함께 add_edge() 및 add_conditional_edges()로 정의된 간선이 포함됩니다.
     image_bytes = app.get_graph().draw_png()
+    
+    # 생성된 이미지를 파일로 저장합니다.
+    graph_file = "workflow_graph.png"
+    with open(graph_file, "wb") as f:
+        f.write(image_bytes)
+    
+    print(f"✅ Graph visualization with edges saved to '{graph_file}'")
+    
+    # IPython 환경에서 이미지를 직접 표시합니다.
     display(Image(data=image_bytes))
 except Exception as e:
-    print(f"Could not generate graph image: {e}")
+    print(f"⚠️ Could not generate or save graph image: {e}")
 # ==== 중복/유사 질의 감지 유틸 ====
 import json, hashlib, difflib, re
 
@@ -1068,5 +1042,5 @@ while True:
 
 
 # 3번 셀
-run_with_visualization()
+# run_with_visualization() # NOTE: This function is not defined in the script.
 
