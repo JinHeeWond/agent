@@ -3,20 +3,10 @@
 
 # In[21]:
 
-
-from gettext import install
-import graphviz
-import matplotlib
-import networkx
-import pydot
-
-
 # To install required packages, run the following command in your terminal:
 # pip install pydot graphviz
 
-
 # In[3]:
-
 
 # To install matplotlib and networkx, run the following command in your terminal:
 # pip install matplotlib networkx
@@ -36,7 +26,12 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import InMemorySaver
 from langchain_google_genai import ChatGoogleGenerativeAI
 from tavily import TavilyClient
+from dotenv import load_dotenv
 
+load_dotenv()
+
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 # ==========================================================
 # ✨ 1. AgentState 및 전문가 노드/Tool 정의 ✨
 # ==========================================================
@@ -58,18 +53,19 @@ SUMMARY_MAX_TOKENS    = 600        # 러닝 서머리 길이 목표(LLM에 요�
 RESEARCH_LANG_MODE = "both"  # "en" | "ko" | "both"
 OUTPUT_LANG = "en"           # "en" | "ko"
 
-# ==== 환경 설정, 모델 로딩, Tool 정의 ====
 def setup_environment():
-    # 💥 중요: "tvly-..." 부분에 본인의 Tavily API 키를 입력하세요.
-    TAVILY_API_KEY = "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"
-    os.environ["TAVILY_API_KEY"] = TAVILY_API_KEY
-    return TavilyClient(api_key=TAVILY_API_KEY)
+    key = os.getenv("TAVILY_API_KEY") or TAVILY_API_KEY
+    if not key:
+        raise RuntimeError("TAVILY_API_KEY가 설정되지 않았습니다. .env 또는 환경변수를 확인하세요.")
+    os.environ["TAVILY_API_KEY"] = key
+    return TavilyClient(api_key=key)
 
 tavily_client = setup_environment()
 
 # 🤫 제공해주신 본인의 Gemini API 키를 "" 안에 붙여넣으세요.
 # (보안을 위해 이 키는 나중에 꼭 교체해주세요!)
-GOOGLE_API_KEY = "AIzaSyAymOmcEDUuV9xWZ-o_3ecIkRrlR8P6I5E"
+if not GOOGLE_API_KEY:
+    raise RuntimeError("GOOGLE_API_KEY가 설정되지 않았습니다. .env 또는 환경변수를 확인하세요.")
 
 # ✨ 모델을 초기화할 때 위 API 키를 직접 전달합니다.
 model = ChatGoogleGenerativeAI(
